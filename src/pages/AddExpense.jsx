@@ -26,7 +26,7 @@ export default function AddExpense() {
     amount: "",
     description: "",
     paidBy: currentUser._id || "",
-    splitWith: [],
+    splitWith: [], // only OTHER members selected
   });
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -42,7 +42,10 @@ export default function AddExpense() {
             ...prev,
             group: firstGroup._id,
             paidBy: currentUser._id || "",
-            splitWith: firstGroup.members.map(m => m._id)
+            // Filter out current user from initial split selection
+            splitWith: (firstGroup.members || [])
+              .filter(m => String(m._id) !== String(currentUser._id))
+              .map(m => m._id)
           }));
         }
       } catch (err) {
@@ -60,31 +63,38 @@ export default function AddExpense() {
       ...form,
       group: groupId,
       paidBy: currentUser._id || "",
-      splitWith: group?.members.map(m => m._id) || []
+      // Filter out current user from selection
+      splitWith: group?.members
+        .filter(m => String(m._id) !== String(currentUser._id))
+        .map(m => m._id) || []
     });
   };
 
+  const participants = [...new Set([currentUser._id, ...form.splitWith])];
+  const totalParticipants = participants.length;
+  const sharePerPerson = form.amount && totalParticipants > 0
+    ? (parseFloat(form.amount) / totalParticipants).toFixed(2)
+    : 0;
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (form.splitWith.length === 0) {
-      alert("Please select at least one person to split with.");
+    if (totalParticipants === 0) {
+      alert("Please select at least one participant.");
       return;
     }
 
     setLoading(true);
     try {
       const amount = parseFloat(form.amount);
-      const isPayerInSplit = form.splitWith.includes(form.paidBy);
-      const participants = isPayerInSplit ? form.splitWith : [...form.splitWith, form.paidBy];
-      const share = amount / participants.length;
+      const share = amount / totalParticipants;
 
       const payload = {
         group: form.group,
         description: form.description,
         amount: amount,
-        paidBy: form.paidBy,
-        splitBetween: participants.map(memberId => ({
-          user: memberId,
+        paidBy: currentUser._id,
+        splitBetween: participants.map(userId => ({
+          user: userId,
           share: share
         }))
       };
@@ -97,11 +107,14 @@ export default function AddExpense() {
         amount: "",
         description: "",
         paidBy: currentUser._id || "",
-        splitWith: groups[0]?.members.map(m => m._id) || [],
+        // Filter out current user on reset
+        splitWith: (groups[0]?.members || [])
+          .filter(m => String(m._id) !== String(currentUser._id))
+          .map(m => m._id),
       });
     } catch (err) {
       console.error(err);
-      alert(err.response?.data?.message || "Error adding transaction");
+      alert(err.response?.data?.message || "Error adding expense");
     } finally {
       setLoading(false);
     }
@@ -120,16 +133,13 @@ export default function AddExpense() {
     if (selectedGroup) {
       setForm(prev => ({
         ...prev,
-        splitWith: selectedGroup.members.map(m => m._id)
+        // Select everyone EXCEPT current user
+        splitWith: selectedGroup.members
+          .filter(m => String(m._id) !== String(currentUser._id))
+          .map(m => m._id)
       }));
     }
   };
-
-  const isPayerInSplit = form.splitWith.includes(form.paidBy);
-  const totalParticipants = form.splitWith.length + (isPayerInSplit ? 0 : 1);
-  const sharePerPerson = form.amount && form.splitWith.length > 0
-    ? (parseFloat(form.amount) / totalParticipants).toFixed(2)
-    : 0;
 
   return (
     <Layout>
@@ -139,7 +149,7 @@ export default function AddExpense() {
           animate={{ opacity: 1, y: 0 }}
         >
           <h1 className="text-4xl font-bold">Add <span className="gradient-text">Expense</span></h1>
-          <p className="mt-2 text-slate-400">Record a new transaction and split it with your group.</p>
+          <p className="mt-2 text-slate-400">Splitting between {totalParticipants} people (including you)</p>
         </motion.div>
 
         <form onSubmit={handleSubmit}>
@@ -161,7 +171,7 @@ export default function AddExpense() {
                   required
                 />
               </div>
-              {form.amount && form.splitWith.length > 0 && (
+              {form.amount && totalParticipants > 0 && (
                 <p className="text-emerald-400 font-bold bg-emerald-500/10 inline-block px-4 py-1.5 rounded-full border border-emerald-500/20 animate-pulse">
                   ₹{sharePerPerson} per person
                 </p>
@@ -231,25 +241,27 @@ export default function AddExpense() {
                 <div className="glass-card p-4 border border-white/5 bg-white/5 min-h-[140px] flex flex-col">
                   {selectedGroup ? (
                     <div className="flex flex-wrap gap-2.5">
-                      {selectedGroup.members.map((member) => (
-                        <button
-                          type="button"
-                          key={member._id}
-                          onClick={() => toggleMember(member._id)}
-                          className={cn(
-                            "flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all duration-300 border",
-                            form.splitWith.includes(member._id)
-                              ? "bg-primary-500/20 border-primary-500/50 text-white shadow-lg shadow-primary-500/10"
-                              : "bg-white/5 border-white/5 text-slate-400 hover:bg-white/10"
-                          )}
-                        >
-                          <div className="w-5 h-5 rounded-full bg-slate-800 flex items-center justify-center text-[8px] font-black">
-                            {member.name?.charAt(0)}
-                          </div>
-                          {member.name}
-                          {form.splitWith.includes(member._id) && <Check size={12} strokeWidth={3} />}
-                        </button>
-                      ))}
+                      {selectedGroup.members
+                        .filter(member => String(member._id) !== String(currentUser._id))
+                        .map((member) => (
+                          <button
+                            type="button"
+                            key={member._id}
+                            onClick={() => toggleMember(member._id)}
+                            className={cn(
+                              "flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all duration-300 border",
+                              form.splitWith.includes(member._id)
+                                ? "bg-primary-500/20 border-primary-500/50 text-white shadow-lg shadow-primary-500/10"
+                                : "bg-white/5 border-white/5 text-slate-400 hover:bg-white/10"
+                            )}
+                          >
+                            <div className="w-5 h-5 rounded-full bg-slate-800 flex items-center justify-center text-[8px] font-black">
+                              {member.name?.charAt(0)}
+                            </div>
+                            {member.name}
+                            {form.splitWith.includes(member._id) && <Check size={12} strokeWidth={3} />}
+                          </button>
+                        ))}
                     </div>
                   ) : (
                     <div className="flex flex-col items-center justify-center flex-1 space-y-2 text-slate-500">
@@ -257,9 +269,9 @@ export default function AddExpense() {
                       <p className="text-sm">Select a group first</p>
                     </div>
                   )}
-                  {form.splitWith.length > 0 && (
+                  {totalParticipants > 0 && (
                     <div className="pt-4 mt-auto border-t border-white/5">
-                      <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Selected: {form.splitWith.length} people</p>
+                      <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Selected: {totalParticipants} people (Including you)</p>
                     </div>
                   )}
                 </div>

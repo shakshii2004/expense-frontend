@@ -47,7 +47,7 @@ const AddMemberModal = ({ isOpen, onClose, group, onMemberAdded }) => {
             onClose();
         } catch (err) {
             console.error("Error adding member", err);
-            alert(err.response?.data?.msg || "Error adding member");
+            alert(err.response?.data?.message || err.response?.data?.msg || "Error adding member");
         } finally {
             setLoading(false);
         }
